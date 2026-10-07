@@ -39,6 +39,12 @@ public class Transaction {
     public void setStatus(String status)           { this.status = status; }
     public void setFraudReason(String fraudReason) { this.fraudReason = fraudReason; }
 
+    /**
+     * Restores the timestamp from a database record.
+     * Used by DatabaseManager when reading transactions from MySQL.
+     */
+    public void setTimestampFromDb(LocalDateTime ts) { this.timestamp = ts; }
+
     @Override
     public String toString() {
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss");

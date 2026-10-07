@@ -404,7 +404,7 @@
 
             <div class="card">
 
-                <h3>Total Dataset Transactions</h3>
+                <h3>Total Database Transactions</h3>
 
                 <div class="number"
                      id="totalTransactions">
@@ -452,14 +452,14 @@
         </div>
 
 
-        <!-- DATASET ANALYSIS -->
+        <!-- DATABASE ANALYSIS -->
 
         <div class="panel">
 
-            <h2>Dataset Analysis</h2>
+            <h2>Database Analysis</h2>
 
             <p style="margin-top:10px;color:#64748b;">
-                Analysis of the StreamGuard historical transaction dataset.
+                Analysis of the StreamGuard database transaction records.
             </p>
 
 
@@ -468,7 +468,7 @@
                 <div class="dataset-item">
 
                     <h4>
-                        TOTAL DATASET RECORDS
+                        TOTAL DATABASE RECORDS
                     </h4>
 
                     <div class="dataset-value"
@@ -521,25 +521,6 @@
                 </div>
 
             </div>
-
-        </div>
-
-
-        <!-- SYSTEM STATUS -->
-
-        <div class="panel">
-
-            <h2>System Status</h2>
-
-            <p style="margin-top:15px;">
-                Java backend is connected to the StreamGuard
-                fraud detection engine.
-            </p>
-
-            <p style="margin-top:10px;">
-                Dataset:
-                <strong>StreamGuard_Dataset.csv</strong>
-            </p>
 
         </div>
 
@@ -932,13 +913,13 @@
 
 
             const total =
-                Number(data.total);
+                Number(data.total) || 0;
 
             const safe =
-                Number(data.safe);
+                Number(data.safe) || 0;
 
             const fraud =
-                Number(data.fraud);
+                Number(data.fraud) || 0;
 
 
             document

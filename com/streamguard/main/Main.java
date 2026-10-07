@@ -1,10 +1,12 @@
 package com.streamguard.main;
 
+import com.streamguard.database.DatabaseConnection;
 import com.streamguard.manager.AccountManager;
 import com.streamguard.model.BankAccount;
-import com.streamguard.service.DatasetManager;
-import com.streamguard.service.FileManager;
+import com.streamguard.service.DatabaseManager;
+import com.streamguard.service.OutputFileLogger;
 import com.streamguard.service.TransactionService;
+
 import java.util.Scanner;
 
 /**
@@ -15,9 +17,9 @@ import java.util.Scanner;
  * - Classes & Objects
  * - Exception Handling
  * - Multithreading
- * - File Handling
+ * - Database Connectivity (MySQL / JDBC)
+ * - Collections Framework (HashMap, ArrayList)
  * - Loops & Switch Case
- * - Dataset Handling
  *
  * Project    : StreamGuard
  * Team       : MADHAN T (210425149028), AVINASH N T (210425149006)
@@ -29,17 +31,51 @@ public class Main {
 
         Scanner sc = new Scanner(System.in);
 
-        AccountManager accountManager = new AccountManager();
-        TransactionService txnService = new TransactionService();
-        FileManager fileManager = new FileManager();
-        DatasetManager datasetManager = new DatasetManager();
-
         printBanner();
 
-        // Load and display dataset information
-        datasetManager.loadDataset();
+        // ==========================================
+        // DATABASE INITIALIZATION
+        // ==========================================
 
-        // Main application loop
+        System.out.println("  Connecting to MySQL database...");
+
+        boolean dbConnected = DatabaseConnection.testConnection();
+
+        // Create DatabaseManager (manages txnId, SQL queries)
+        DatabaseManager databaseManager = new DatabaseManager();
+
+        // Create AccountManager (HashMap-based in-memory registry)
+        AccountManager accountManager = new AccountManager();
+
+        if (dbConnected) {
+            // Load accounts from MySQL into HashMap
+            databaseManager.loadAccountsFromDatabase(accountManager);
+        } else {
+            // Fallback: load default hardcoded accounts
+            System.out.println(
+                "  [INFO] Running without MySQL. Using in-memory accounts."
+            );
+            accountManager.loadDefaultAccounts();
+        }
+
+        // Create TransactionService with database support
+        TransactionService txnService = new TransactionService(databaseManager);
+
+        // Display database/transaction summary at startup
+        if (dbConnected) {
+            databaseManager.printDatabaseSummary();
+        } else {
+            System.out.println(
+                "\n  [INFO] Database summary unavailable (no MySQL connection).\n"
+            );
+        }
+
+        // Initialize output.db with all transactions in tabular format
+        OutputFileLogger.updateOutputFile();
+
+        // ==========================================
+        // MAIN APPLICATION LOOP
+        // ==========================================
         while (true) {
 
             printMenu();
@@ -54,16 +90,15 @@ public class Main {
             } catch (NumberFormatException e) {
 
                 System.out.println(
-                        "  [ERROR] Please enter a valid number.\n"
+                    "  [ERROR] Please enter a valid number.\n"
                 );
-
                 continue;
             }
 
             switch (choice) {
 
                 // ==========================================
-                // CASE 1 - NEW TRANSACTION
+                // CASE 1 – NEW TRANSACTION
                 // ==========================================
                 case 1:
 
@@ -80,24 +115,18 @@ public class Main {
                         try {
 
                             System.out.print("  Enter Account ID: ");
-
-                            accId = Integer.parseInt(
-                                    sc.nextLine().trim()
-                            );
-
+                            accId = Integer.parseInt(sc.nextLine().trim());
                             account = accountManager.getAccount(accId);
 
                             if (account == null) {
-
                                 System.out.println(
-                                        "  [ERROR] Account not found. Try again."
+                                    "  [ERROR] Account not found. Try again."
                                 );
                             }
 
                         } catch (NumberFormatException e) {
-
                             System.out.println(
-                                    "  [ERROR] Invalid Account ID. Enter a number."
+                                "  [ERROR] Invalid Account ID. Enter a number."
                             );
                         }
                     }
@@ -109,156 +138,141 @@ public class Main {
 
                         try {
 
-                            System.out.print(
-                                    "  Enter Transaction Amount (Rs.): "
-                            );
-
-                            amount = Double.parseDouble(
-                                    sc.nextLine().trim()
-                            );
+                            System.out.print("  Enter Transaction Amount (Rs.): ");
+                            amount = Double.parseDouble(sc.nextLine().trim());
 
                             if (amount <= 0) {
-
                                 System.out.println(
-                                        "  [ERROR] Amount must be greater than zero."
+                                    "  [ERROR] Amount must be greater than zero."
                                 );
                             }
 
                         } catch (NumberFormatException e) {
-
                             System.out.println(
-                                    "  [ERROR] Invalid amount. Enter a numeric value."
+                                "  [ERROR] Invalid amount. Enter a numeric value."
                             );
-
                             amount = 0;
                         }
                     }
 
                     // Get location
-                    System.out.print(
-                            "  Enter Transaction Location (City): "
-                    );
-
+                    System.out.print("  Enter Transaction Location (City): ");
                     String location = sc.nextLine().trim();
-
-                    if (location.isEmpty()) {
-
-                        location = "Unknown";
-                    }
+                    if (location.isEmpty()) location = "Unknown";
 
                     /*
-                     * Create final copies for the thread.
-                     * This avoids lambda variable errors.
+                     * Final copies for the lambda (multithreading).
                      */
-                    final BankAccount finalAccount = account;
-                    final double finalAmount = amount;
-                    final String finalLocation = location;
+                    final BankAccount finalAccount  = account;
+                    final double      finalAmount   = amount;
+                    final String      finalLocation = location;
 
                     // ==========================================
-                    // MULTITHREADING
+                    // MULTITHREADING – Transaction runs in separate thread
                     // ==========================================
-
-                    Thread transactionThread = new Thread(() -> {
-
+                    Thread transactionThread = new Thread(() ->
                         txnService.processTransaction(
-                                finalAccount,
-                                finalAmount,
-                                finalLocation
-                        );
-
-                    });
+                            finalAccount, finalAmount, finalLocation
+                        )
+                    );
 
                     transactionThread.start();
 
                     try {
-
                         transactionThread.join();
-
                     } catch (InterruptedException e) {
-
-                        System.out.println(
-                                "  [ERROR] Transaction thread interrupted."
-                        );
-
+                        System.out.println("  [ERROR] Transaction thread interrupted.");
                         Thread.currentThread().interrupt();
                     }
 
                     break;
 
                 // ==========================================
-                // CASE 2 - TRANSACTION HISTORY
+                // CASE 2 – TRANSACTION HISTORY (from MySQL)
                 // ==========================================
                 case 2:
 
-                    System.out.println(
-                            "\n  --- TRANSACTION HISTORY ---"
-                    );
+                    System.out.println("\n  --- TRANSACTION HISTORY ---");
 
-                    fileManager.printHistory();
-
+                    if (dbConnected) {
+                        databaseManager.printTransactionHistory();
+                    } else {
+                        System.out.println(
+                            "  [INFO] Transaction history unavailable (no MySQL connection)."
+                        );
+                        // Show in-memory blocked list as fallback
+                        if (!txnService.getBlockedTransactions().isEmpty()) {
+                            System.out.println("  In-session transactions:");
+                            txnService.getBlockedTransactions()
+                                      .forEach(t -> System.out.println("  " + t));
+                        }
+                    }
                     break;
 
                 // ==========================================
-                // CASE 3 - ALL ACCOUNTS
+                // CASE 3 – ALL ACCOUNTS
                 // ==========================================
                 case 3:
 
-                    System.out.println(
-                            "\n  --- ALL ACCOUNTS ---"
-                    );
-
+                    System.out.println("\n  --- ALL ACCOUNTS ---");
                     accountManager.listAccounts();
-
                     break;
 
                 // ==========================================
-                // CASE 4 - BLOCKED TRANSACTIONS
+                // CASE 4 – BLOCKED TRANSACTIONS (from MySQL)
                 // ==========================================
                 case 4:
 
-                    System.out.println(
-                            "\n  --- BLOCKED TRANSACTIONS ---"
-                    );
+                    System.out.println("\n  --- BLOCKED TRANSACTIONS ---");
 
-                    if (txnService.getBlockedTransactions().isEmpty()) {
-
-                        System.out.println(
-                                "  No fraud transactions recorded in this session.\n"
-                        );
-
+                    if (dbConnected) {
+                        // Query MySQL for all FRAUD transactions
+                        var blocked = databaseManager.getBlockedTransactions();
+                        if (blocked.isEmpty()) {
+                            System.out.println(
+                                "  No fraud transactions found in database.\n"
+                            );
+                        } else {
+                            System.out.println(
+                                "\n  ======= FRAUD TRANSACTIONS (MySQL) ======="
+                            );
+                            for (var t : blocked) {
+                                System.out.println("  --------------------------------------------------");
+                                System.out.println("  " + t);
+                            }
+                            System.out.println(
+                                "  ==========================================\n"
+                            );
+                        }
                     } else {
-
-                        txnService
-                                .getBlockedTransactions()
-                                .forEach(
-                                        t -> System.out.println("  " + t)
-                                );
-
-                        System.out.println();
+                        // Fallback: in-memory blocked list
+                        if (txnService.getBlockedTransactions().isEmpty()) {
+                            System.out.println(
+                                "  No fraud transactions recorded in this session.\n"
+                            );
+                        } else {
+                            txnService.getBlockedTransactions()
+                                      .forEach(t -> System.out.println("  " + t));
+                            System.out.println();
+                        }
                     }
-
                     break;
 
                 // ==========================================
-                // CASE 0 - EXIT
+                // CASE 0 – EXIT
                 // ==========================================
                 case 0:
 
-                    System.out.println(
-                            "\n  Thank you for using StreamGuard!"
-                    );
-
+                    System.out.println("\n  Thank you for using StreamGuard!");
                     sc.close();
-
                     return;
 
                 // ==========================================
                 // INVALID OPTION
                 // ==========================================
                 default:
-
                     System.out.println(
-                            "  [ERROR] Invalid choice. Please select from the menu.\n"
+                        "  [ERROR] Invalid choice. Please select from the menu.\n"
                     );
             }
         }
@@ -269,18 +283,10 @@ public class Main {
     // ==========================================
     private static void printBanner() {
 
-        System.out.println(
-                "===================================================="
-        );
-
-        System.out.println(
-                "          STREAMGUARD FRAUD DETECTION SYSTEM"
-        );
-
-        System.out.println(
-                "===================================================="
-        );
-
+        System.out.println("====================================================");
+        System.out.println("          STREAMGUARD FRAUD DETECTION SYSTEM");
+        System.out.println("          Powered by MySQL + JDBC");
+        System.out.println("====================================================");
         System.out.println();
     }
 
@@ -289,42 +295,15 @@ public class Main {
     // ==========================================
     private static void printMenu() {
 
-        System.out.println(
-                "  ┌─────────────────────────────────┐"
-        );
-
-        System.out.println(
-                "  │           MAIN MENU             │"
-        );
-
-        System.out.println(
-                "  ├─────────────────────────────────┤"
-        );
-
-        System.out.println(
-                "  │  1. New Transaction             │"
-        );
-
-        System.out.println(
-                "  │  2. View Transaction History    │"
-        );
-
-        System.out.println(
-                "  │  3. View All Accounts            │"
-        );
-
-        System.out.println(
-                "  │  4. View Blocked Transactions   │"
-        );
-
-        System.out.println(
-                "  │  0. Exit                        │"
-        );
-
-        System.out.println(
-                "  └─────────────────────────────────┘"
-        );
-
+        System.out.println("  ┌─────────────────────────────────┐");
+        System.out.println("  │           MAIN MENU             │");
+        System.out.println("  ├─────────────────────────────────┤");
+        System.out.println("  │  1. New Transaction             │");
+        System.out.println("  │  2. View Transaction History    │");
+        System.out.println("  │  3. View All Accounts            │");
+        System.out.println("  │  4. View Blocked Transactions   │");
+        System.out.println("  │  0. Exit                        │");
+        System.out.println("  └─────────────────────────────────┘");
         System.out.println();
     }
 }
