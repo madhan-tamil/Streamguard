@@ -1,5 +1,5 @@
 # StreamGuard – Real-Time Financial Fraud Detection System
-**MySQL + JDBC Edition**
+**Behavioral Anomaly Detection & Statistical Profiling Edition (MySQL + JDBC)**
 
 Chennai Institute of Technology | Department of Cyber Security  
 **Team:** MADHAN T (210425149028) · AVINASH N T (210425149006)
@@ -8,10 +8,44 @@ Chennai Institute of Technology | Department of Cyber Security
 
 ## Overview
 
-StreamGuard is a Java-based rule-driven financial fraud detection system.  
-Every transaction is checked against four fraud rules in real time. If any rule fires, the transaction is **BLOCKED (FRAUD)**; otherwise it is **APPROVED (SAFE)**.
+StreamGuard is an enterprise-grade financial fraud detection engine implemented in Java with native MySQL JDBC persistence.
 
-This edition adds **MySQL database connectivity via JDBC**, replacing the previous CSV and flat-file storage with a proper relational database.
+Based on academic evaluation, the outdated static rule-based system (fixed thresholds and binary if-else rules) has been replaced with a **Behavioral Anomaly Detection & Statistical Profiling Engine**.
+
+### Why the Old Rule-Based Method was Replaced:
+1. **Unrealistic Travel Blocks:** In rule-based systems, any swipe outside the user's home city was flagged as fraud, ignoring normal human travel.
+2. **Arbitrary Amount Cutoffs:** Fixed limits (e.g. > ₹50,000) ignored personal wealth and spending habits (normal for corporate accounts, extreme for student accounts).
+3. **Rigid Night Restrictions:** Blanket bans during late hours penalized night-shift workers.
+4. **Vulnerability to Structuring:** Attackers could easily bypass rules by splitting transactions into multiple micro-payments (e.g. four ₹9,999 transactions).
+
+### The New Method: Behavioral Anomaly Detection & Statistical Profiling
+Instead of binary pass/fail rules, StreamGuard analyzes behavioral deviations and calculates a **Composite Risk Score (0–100)**:
+* **Gaussian Z-Score Outlier Analysis ($Z = \frac{x - \mu}{\sigma}$):** Calculates standard deviations from the user's personal spending mean ($\mu$) and variance ($\sigma$).
+* **Spatio-Temporal Velocity (Haversine Formula):** Computes physical distance and travel speed ($v = \frac{\Delta d}{\Delta t}$). Legitimate travel is permitted; speeds exceeding commercial aircraft limits (>850 km/h) are flagged as **Impossible Travel (Cloned Card)**.
+* **Sliding-Window Burst Velocity:** Detects automated bot attacks, rapid card testing, and structured split transactions within a 10-minute window.
+* **Graduated Risk Scoring:** Transactions are classified into **SAFE (0–30)**, **SUSPICIOUS (31–60)**, and **FRAUD (61–100)** with detailed scientific justifications.
+
+---
+
+## Technical Architecture & Core Algorithms
+
+### 1. Statistical Amount Profiling (Z-Score Model)
+Each customer profile maintains historical transaction parameters:
+$$\mu = \frac{1}{N} \sum_{i=1}^{N} x_i, \quad \sigma = \sqrt{\frac{1}{N} \sum_{i=1}^{N} (x_i - \mu)^2}$$
+$$Z = \frac{\text{Amount} - \mu}{\sigma}$$
+* $Z \le 1.8\sigma$: Normal customer spending pattern (0 points)
+* $1.8\sigma < Z \le 2.5\sigma$: Mild deviation (+15 points)
+* $2.5\sigma < Z \le 3.5\sigma$: Moderate statistical anomaly (+35 points)
+* $Z > 3.5\sigma$: Extreme statistical outlier ($p < 0.0002$, +55 points)
+
+### 2. Spatio-Temporal Travel Feasibility (Haversine Formula)
+Distance $d$ between previous location $(\phi_1, \lambda_1)$ and current location $(\phi_2, \lambda_2)$:
+$$a = \sin^2\left(\frac{\Delta \phi}{2}\right) + \cos(\phi_1)\cos(\phi_2)\sin^2\left(\frac{\Delta \lambda}{2}\right)$$
+$$d = 2R \cdot \text{atan2}(\sqrt{a}, \sqrt{1-a}) \quad (R = 6371\text{ km})$$
+$$\text{Velocity } v = \frac{d}{\Delta t \text{ (hours)}}$$
+* $v \le 150\text{ km/h}$: Normal ground transit (car/train) ➔ Approved (0 points)
+* $150 < v \le 850\text{ km/h}$: Feasible air travel with realistic layover ➔ Approved (0–15 points)
+* $v > 850\text{ km/h}$: Impossible physical travel velocity ➔ **FRAUD / Cloned Card** (+65 points)
 
 ---
 
@@ -19,27 +53,14 @@ This edition adds **MySQL database connectivity via JDBC**, replacing the previo
 
 | Concept | Location |
 |---------|----------|
-| OOP – Encapsulation | `BankAccount`, `Transaction` |
+| OOP – Encapsulation | `BankAccount`, `Transaction`, `RiskScore` |
 | OOP – Inheritance | `SavingsAccount`, `CurrentAccount` extend `BankAccount` |
-| OOP – Abstraction | `BankAccount` (abstract), `FraudRule` (abstract) |
-| OOP – Polymorphism | `check()` overridden in each rule class |
-| Collections Framework | `HashMap<Integer, BankAccount>` in `AccountManager` |
-| Collections Framework | `ArrayList<Transaction>` in `TransactionService` |
-| Exception Handling | try/catch in all service and DB classes |
-| Multithreading | Transaction runs in separate `Thread` in `Main` |
-| **Database Connectivity** | **JDBC + MySQL in `DatabaseManager`, `DatabaseConnection`** |
-| File Handling | Kept as `DatasetManager` stub (now delegates to MySQL) |
-
----
-
-## Fraud Rules
-
-| Rule | Description |
-|------|-------------|
-| `AmountRule` | Flags transactions above **Rs. 50,000** |
-| `LocationRule` | Flags when transaction city ≠ registered city |
-| `TimeRule` | Flags transactions between **11:00 PM – 5:00 AM** |
-| `BalanceRule` | Flags amount greater than account balance |
+| OOP – Abstraction | `BankAccount` (abstract class) |
+| Collections Framework | `HashMap`, `ArrayList`, sliding-window `List<LocalDateTime>` |
+| Mathematical Modeling | Haversine spherical geometry, standard deviation, Z-score computation |
+| Exception Handling | Robust `try-catch-finally` with automatic fallback mechanisms |
+| Multithreading | Threaded transaction processing and concurrent web request handling |
+| Database Connectivity | Native JDBC (PreparedStatements, Connection management, ResultSets) |
 
 ---
 
@@ -48,300 +69,190 @@ This edition adds **MySQL database connectivity via JDBC**, replacing the previo
 ```
 StreamGuard/
 ├── README.md
-├── output.db                            ← Live transaction log (auto-generated)
-├── StreamGuard_Dataset.csv              ← Optional reference (not used at runtime)
-├── TransactionHistory.txt               ← Optional legacy file (not used at runtime)
+├── output.db                                ← Live tabular ASCII transaction log
 ├── lib/
-│   └── mysql-connector-j-9.0.0.jar     ← MySQL JDBC Driver (required)
+│   └── mysql-connector-j-9.0.0.jar          ← MySQL JDBC Driver
 ├── database/
-│   └── streamguard.sql                 ← Run this in MySQL Workbench first!
-├── out/                                 ← Compiled .class files go here
+│   └── streamguard.sql                      ← MySQL schema & initial seed data
+├── out/                                     ← Compiled bytecode (.class files)
 └── com/
     └── streamguard/
+        ├── anomaly/                         ← NEW: Behavioral Anomaly Detection Engine
+        │   ├── AnomalyDetectionEngine.java  ← Composite risk engine & burst tracker
+        │   ├── GeoLocationService.java      ← Indian city geocodes & Haversine formula
+        │   └── UserProfileStatistics.java   ← Gaussian dynamic baseline (μ, σ, Z-score)
         ├── database/
-        │   └── DatabaseConnection.java   ← JDBC connection (change credentials here)
+        │   └── DatabaseConnection.java      ← JDBC connection manager
         ├── main/
-        │   └── Main.java                 ← Console entry point
+        │   └── Main.java                    ← Interactive console interface
         ├── manager/
-        │   └── AccountManager.java       ← HashMap registry, DB-loaded accounts
+        │   └── AccountManager.java          ← Account registry & cache
         ├── model/
-        │   ├── BankAccount.java          ← Abstract base class
-        │   ├── CurrentAccount.java       ← Overdraft account
-        │   ├── SavingsAccount.java       ← Minimum balance account
-        │   └── Transaction.java          ← Transaction model
-        ├── rules/
-        │   ├── FraudCheck.java           ← Interface
-        │   ├── FraudRule.java            ← Abstract base rule
-        │   ├── AmountRule.java
-        │   ├── BalanceRule.java
-        │   ├── LocationRule.java
-        │   └── TimeRule.java
+        │   ├── BankAccount.java             ← Abstract account model
+        │   ├── CurrentAccount.java          ← Current account with overdraft
+        │   ├── SavingsAccount.java          ← Savings account with min balance
+        │   ├── Transaction.java             ← Model with risk score & verdict
+        │   └── RiskScore.java               ← Score (0-100) and classification model
         ├── service/
-        │   ├── DatabaseManager.java      ← All MySQL operations (replaces CSV + TXT)
-        │   ├── DatasetManager.java       ← Stub (delegates to DatabaseManager)
-        │   ├── FraudChecker.java         ← Runs all fraud rules
-        │   ├── OutputFileLogger.java     ← Writes tabular logs to output.db
-        │   └── TransactionService.java   ← Transaction flow coordinator
+        │   ├── DatabaseManager.java         ← MySQL queries & profile data loader
+        │   ├── OutputFileLogger.java        ← Live sync to output.db
+        │   └── TransactionService.java      ← Transaction orchestrator
         ├── web/
-        │   └── WebServer.java            ← HTTP server + all API endpoints
-        └── src/
-            └── main/
-                └── webapp/
-                    └── index.html        ← Web dashboard UI
+        │   └── WebServer.java               ← Embedded HTTP server & JSON APIs
+        └── src/main/webapp/
+            └── index.html                   ← Dashboard with animated risk bar & pills
 ```
 
 ---
 
-## MySQL Database Setup
+## Step-by-Step MySQL / MariaDB Server Setup Guide
 
-### Prerequisites
-- MySQL Server 8.x installed and running
-- MySQL Workbench (optional but recommended)
-- JDK 17 or later
+Follow these steps to connect MySQL/MariaDB to the StreamGuard project:
 
-### Step 1 – Run the SQL Script
+### Step 1: Start Database Server
+Open your terminal and ensure the database service is running:
 
-Open **MySQL Workbench**, then:
-
-1. `File → Open SQL Script → database/streamguard.sql`
-2. Click **Execute** (⚡ lightning bolt button)
-
-Or from command line:
+**Fedora / RHEL / MariaDB:**
 ```bash
-mysql -u root -p < database/streamguard.sql
+sudo systemctl start mariadb
+sudo systemctl status mariadb
 ```
 
-This creates:
-- Database: `streamguard`
-- Table: `accounts` (5 demo accounts pre-loaded)
-- Table: `transactions` (10 sample transactions for dashboard testing)
-
-### Step 2 – Configure Database Credentials
-
-Open [`com/streamguard/database/DatabaseConnection.java`](com/streamguard/database/DatabaseConnection.java) and update:
-
-```java
-private static final String URL      = "jdbc:mysql://localhost:3306/streamguard"
-                                     + "?useSSL=false&allowPublicKeyRetrieval=true"
-                                     + "&serverTimezone=Asia/Kolkata";
-private static final String USER     = "root";
-private static final String PASSWORD = "your_password";   // ← change this
+**Ubuntu / Debian (MySQL):**
+```bash
+sudo systemctl start mysql
+sudo systemctl status mysql
 ```
 
-### Step 3 – Verify Setup (MySQL Workbench / CLI)
+> **Tip:** To enable MariaDB to start automatically on every boot:
+> ```bash
+> sudo systemctl enable mariadb
+> ```
 
+---
+
+### Step 2: Initialize Database and Tables (Run ONCE)
+Import `database/streamguard.sql` into MariaDB / MySQL:
+
+```bash
+cd /home/madhan/Documents/Streamguard
+sudo mariadb -u root -pStreamGuard07 < database/streamguard.sql
+```
+*(If using standard MySQL, replace `mariadb` with `mysql`)*.
+
+> ⚠️ **IMPORTANT WARNING:**  
+> `streamguard.sql` contains `DROP TABLE IF EXISTS`. It resets the database and seeds the 10 initial sample records. **Run this command ONLY ONCE during initial setup.**  
+> **Do NOT run this command to inspect transactions**, or it will erase any new transactions you submitted!
+
+---
+
+### Step 3: Check Live Database Records (Without Resetting)
+
+Use these commands anytime to view real-time changes reflected from transactions:
+
+#### A. View Latest Transactions (Live Stream)
+```bash
+sudo mariadb -u root -pStreamGuard07 -e "USE streamguard; SELECT txn_id, account_id, amount, location, timestamp, status, risk_score, verdict FROM transactions ORDER BY txn_id DESC LIMIT 5;"
+```
+
+#### B. Check Live Account Balances
+```bash
+sudo mariadb -u root -pStreamGuard07 -e "USE streamguard; SELECT account_id, account_holder, account_type, balance, registered_city FROM accounts;"
+```
+
+#### C. Open Interactive MariaDB Shell
+```bash
+sudo mariadb -u root -pStreamGuard07
+```
+Once inside the prompt (`MariaDB [(none)]>`):
 ```sql
 USE streamguard;
-
--- Check accounts
+SELECT * FROM transactions ORDER BY txn_id DESC LIMIT 10;
 SELECT * FROM accounts;
-
--- Check all transactions
-SELECT * FROM transactions;
-
--- Summary counts
-SELECT
-    COUNT(*) AS total,
-    SUM(CASE WHEN status='SAFE'  THEN 1 ELSE 0 END) AS safe,
-    SUM(CASE WHEN status='FRAUD' THEN 1 ELSE 0 END) AS fraud
-FROM transactions;
-
--- Fraud reasons breakdown
-SELECT fraud_reason, COUNT(*) AS count
-FROM transactions
-WHERE status = 'FRAUD'
-GROUP BY fraud_reason;
-
--- All fraud (blocked) transactions
-SELECT * FROM transactions WHERE status = 'FRAUD' ORDER BY timestamp DESC;
+EXIT;
 ```
+
+---
+
+### Step 4: Configure Credentials in Code
+Open [`com/streamguard/database/DatabaseConnection.java`](com/streamguard/database/DatabaseConnection.java):
+
+```java
+private static final String URL = "jdbc:mysql://localhost:3306/streamguard"
+        + "?useSSL=false&allowPublicKeyRetrieval=true"
+        + "&serverTimezone=Asia/Kolkata";
+private static final String USER = "root";
+private static final String PASSWORD = "StreamGuard07"; // <-- Match your local MySQL password
+```
+*If your database root password differs, update `PASSWORD` in this file.*
 
 ---
 
 ## How to Compile & Run
 
-### Compile (PowerShell – run from `D:\StreamGuard`)
+### 1. Compile All Files
+Compile all Java sources with the included MySQL JDBC connector:
 
+**Linux / macOS (Bash):**
+```bash
+cd /home/madhan/Documents/Streamguard
+
+javac -cp "lib/mysql-connector-j-9.0.0.jar" -d out \
+    com/streamguard/model/*.java \
+    com/streamguard/anomaly/*.java \
+    com/streamguard/rules/*.java \
+    com/streamguard/manager/*.java \
+    com/streamguard/service/*.java \
+    com/streamguard/database/*.java \
+    com/streamguard/web/WebServer.java \
+    com/streamguard/main/Main.java
+```
+
+**Windows (PowerShell):**
 ```powershell
-javac -d out -cp "lib\mysql-connector-j-9.0.0.jar" (Get-ChildItem -Recurse -Filter *.java | ForEach-Object { $_.FullName })
-```
-
-### Run Console Version (Main.java)
-
-```powershell
-java -cp "out;lib\mysql-connector-j-9.0.0.jar" com.streamguard.main.Main
-```
-
-### Run Web Dashboard (WebServer.java)
-
-```powershell
-java -cp "out;lib\mysql-connector-j-9.0.0.jar" com.streamguard.web.WebServer
-```
-
-Then open: **http://localhost:8080**
-
-> **Troubleshooting: `java.net.BindException: Address already in use: bind`**  
-> If you see this error when running the Web Server, it means another instance is already running on port 8080. You must stop it first:
-> - **PowerShell**: Run `Stop-Process -Name java -Force -ErrorAction SilentlyContinue`
-> - Or close the terminal window where it is currently running.
-
----
-
-## Default Demo Accounts (in MySQL and HashMap)
-
-| ID | Holder | Type | Balance | City |
-|----|--------|------|---------|------|
-| 1001 | MADHAN T | Savings | Rs. 75,000 | Chennai |
-| 1002 | AVINASH N T | Savings | Rs. 50,000 | Chennai |
-| 1003 | RAJESH KUMAR | Current | Rs. 1,20,000 | Coimbatore |
-| 1004 | PRIYA S | Savings | Rs. 30,000 | Bangalore |
-| 1005 | SURESH V | Current | Rs. 2,00,000 | Mumbai |
-
----
-
-## Sample Test Cases (Account 1001 – MADHAN T, Chennai)
-
-| Amount | Location | Expected Result | Rule Triggered |
-|--------|----------|-----------------|----------------|
-| Rs. 25,000 | Chennai | ✔ SAFE | None |
-| Rs. 60,000 | Chennai | ✘ FRAUD | AmountRule (> Rs. 50,000) |
-| Rs. 10,000 | Mumbai | ✘ FRAUD | LocationRule (city mismatch) |
-| Rs. 10,000 | Chennai | ✘ FRAUD | TimeRule (if run at midnight) |
-| Rs. 80,000 | Chennai | ✘ FRAUD | BalanceRule (> balance) |
-
----
-
-## How a Transaction Flows Through the System
-
-```
-User Input (amount, location, account ID)
-          ↓
-  TransactionService.processTransaction()
-          ↓
-  DatabaseManager.getNextTxnId()     ← avoid duplicate IDs after restart
-          ↓
-  FraudChecker.runAllChecks()        ← runs all 4 rules
-          ↓
-   SAFE                  FRAUD
-     ↓                     ↓
-account.withdraw()    blockedTransactions.add()
-     ↓
-DatabaseManager.updateAccountBalance()   ← UPDATE accounts SET balance = ?
-          ↓
-DatabaseManager.saveTransaction()        ← INSERT INTO transactions ...
-          ↓
-  Result displayed to user
+javac -cp "lib\mysql-connector-j-9.0.0.jar" -d out (Get-ChildItem -Recurse -Filter *.java | ForEach-Object { $_.FullName })
 ```
 
 ---
 
-## API Endpoints (Web Server)
+### 2. Run the Web Dashboard (Recommended for Demo)
+```bash
+java -cp "out:lib/mysql-connector-j-9.0.0.jar" com.streamguard.web.WebServer
+```
+*(On Windows PowerShell, replace `:` with `;`: `java -cp "out;lib\mysql-connector-j-9.0.0.jar" com.streamguard.web.WebServer`)*
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `http://localhost:8080/` | GET | Web dashboard UI |
-| `/api/status` | GET | Server and DB status |
-| `/api/dataset` | GET | Summary from MySQL (total/safe/fraud/reasons) |
-| `/api/accounts` | GET | All accounts JSON |
-| `/api/account?id=1001` | GET | Single account JSON |
-| `/api/transaction` | POST | Process new transaction |
-| `/api/history` | GET | All transactions from MySQL (DESC by time) |
-| `/api/blocked` | GET | FRAUD transactions from MySQL |
+* Open your browser and navigate to: **`http://localhost:8080`**
+* The server status indicator will show: **● ONLINE** and **MySQL Connected**.
 
 ---
 
-## output.db – Live Transaction Log File
-
-Every transaction processed through the web dashboard (or console) is **automatically appended** to `output.db` in the project root as a formatted ASCII table.
-
-### Sample output.db contents
-
-```
-===========================================================================================================================================
-| TXN ID | ACCOUNT ID | HOLDER NAME           | AMOUNT        | CITY       | STATUS | FRAUD REASON                        | TIMESTAMP          |
-===========================================================================================================================================
-| 1011   | 1001       | MADHAN T              | Rs. 25000.00  | Chennai    | SAFE   | -                                   | 2026-10-07 10:05:12 |
-| 1012   | 1002       | AVINASH N T           | Rs. 60000.00  | Chennai    | FRAUD  | Amount exceeds Rs. 50,000 limit     | 2026-10-07 10:07:45 |
-| 1013   | 1003       | RAJESH KUMAR          | Rs. 10000.00  | Mumbai     | FRAUD  | Transaction from different city     | 2026-10-07 10:09:31 |
-===========================================================================================================================================
-```
-
-- **On startup**, existing transactions from MySQL are loaded into `output.db` automatically.
-- **On each new transaction**, the record is appended live.
-- **Managed by**: `com/streamguard/service/OutputFileLogger.java`
-
----
-
-## How Java Connects to MySQL
-
-```java
-// 1. Load driver (once, in static block)
-Class.forName("com.mysql.cj.jdbc.Driver");
-
-// 2. Get connection
-Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
-
-// 3. PreparedStatement – prevents SQL injection
-PreparedStatement ps = conn.prepareStatement(
-    "INSERT INTO transactions (txn_id, account_id, amount, ...) VALUES (?, ?, ?, ...)"
-);
-ps.setInt(1, txn.getTxnId());
-ps.setDouble(3, txn.getAmount());
-ps.executeUpdate();
-
-// 4. try-with-resources – auto-closes connection
-try (Connection conn = DatabaseConnection.getConnection();
-     PreparedStatement ps = conn.prepareStatement(sql)) {
-    // ...
-}
+### 3. Run the Console CLI Version
+```bash
+java -cp "out:lib/mysql-connector-j-9.0.0.jar" com.streamguard.main.Main
 ```
 
 ---
 
-## What Changed vs Original
+## Academic Demonstration Scenarios (Show Your Professor)
 
-| Feature | Before | After |
-|---------|--------|-------|
-| Dataset stats | Read `StreamGuard_Dataset.csv` | MySQL `SELECT COUNT(*)` queries |
-| Transaction storage | Write to `TransactionHistory.txt` | `INSERT INTO transactions` |
-| Transaction logging | Console output only | Synchronized ASCII table logging in `output.db` |
-| Transaction history | Read `TransactionHistory.txt` | `SELECT * FROM transactions` |
-| Blocked transactions | In-memory `ArrayList` (lost on restart) | MySQL `WHERE status='FRAUD'` |
-| Account loading | Hardcoded `HashMap` | Loaded from MySQL `accounts` table |
-| Account balance sync | Java object only | Java object + MySQL `UPDATE accounts` |
-| Transaction ID | Restarted at 1001 each run | Continues from `MAX(txn_id) + 1` |
+Run these scenarios during review to demonstrate the superiority of the Anomaly Detection engine:
 
----
-
-## Files Created / Modified / Removed
-
-### Created (New)
-- `com/streamguard/database/DatabaseConnection.java` – JDBC connection manager
-- `com/streamguard/service/DatabaseManager.java` – All MySQL operations
-- `com/streamguard/service/OutputFileLogger.java` – Writes tabular logs to `output.db`
-- `database/streamguard.sql` – Database setup script
-- `lib/mysql-connector-j-9.0.0.jar` – MySQL JDBC driver
-- `output.db` – Live tabular transaction log file
-- `README.md` – This file
-
-### Modified
-- `com/streamguard/main/Main.java` – DB init, accounts from MySQL, triggers `output.db` sync
-- `com/streamguard/manager/AccountManager.java` – `addAccount()`, `loadDefaultAccounts()`, `getAllAccounts()`
-- `com/streamguard/model/Transaction.java` – Added `setTimestampFromDb()`
-- `com/streamguard/service/TransactionService.java` – Uses `DatabaseManager` and logs to `output.db`
-- `com/streamguard/service/DatasetManager.java` – Converted to DB-delegating stub
-- `com/streamguard/web/WebServer.java` – All API endpoints use MySQL, triggers `output.db` sync
-
-### Removed (no longer used at runtime)
-- `StreamGuard_Dataset.csv` – Still present as reference, not loaded at runtime
-- `TransactionHistory.txt` – Still present as reference, not written or read
-- `com/streamguard/service/FileManager.java` – Removed legacy text file handling
+| Scenario | Input | Engine Result | Scientific Justification |
+|---|---|---|---|
+| **1. Normal Spending** | Account `1001`<br>₹5,000 in `Chennai` | ✅ **APPROVED (SAFE)**<br>Risk Score: `0/100` | Within normal baseline ($\mu = ₹8,000, \sigma = ₹2,500$). $Z = 0.4\sigma$. |
+| **2. Feasible Human Travel** | Account `1001`<br>₹4,000 in `Bangalore` | ✅ **APPROVED (SAFE)**<br>Risk Score: `0/100` | Haversine distance = 290 km, time elapsed = 5 hrs ➔ Velocity = 58 km/h. Feasible highway transit. |
+| **3. Impossible Travel (Cloned Card)** | Account `1001`<br>₹5,000 in `Delhi` *(immediately after)* | 🚫 **BLOCKED (FRAUD)**<br>Risk Score: `65/100` | Distance = 1,740 km, time < 2 mins ➔ Velocity > 50,000 km/h (> 850 km/h commercial aircraft limit). |
+| **4. Statistical Spending Outlier** | Account `1004 (Priya S)`<br>₹45,000 in `Bangalore` | 🚫 **BLOCKED (FRAUD)**<br>Risk Score: `55/100` | Account average is ₹3,500. A ₹45,000 transaction is $>34\sigma$ standard deviations away (extreme outlier). |
+| **5. High-Frequency Burst Testing** | Any Account<br>5 transactions in < 2 mins | ⚠️ **SUSPICIOUS / FRAUD**<br>Risk Score: `45–70/100` | Sliding-window burst detector flags automated card testing / bot activity. |
 
 ---
 
-## Notes
+## Default Demo Accounts
 
-- The **CSV file** and **TXT file** still exist in the project folder but are no longer used at runtime.
-- If MySQL is **not available**, the application falls back to the hardcoded in-memory accounts and prints a clear error message instead of crashing.
-- This project does **not** use Spring Boot, Hibernate, JPA, or any ORM. It uses plain Java + JDBC.
-- The MySQL Connector/J JAR (`lib/mysql-connector-j-9.0.0.jar`) must be on the classpath when compiling and running.
+| ID | Holder | Type | Initial Balance | Registered City | Spending Persona |
+|:---:|:---|:---:|:---:|:---:|:---|
+| **1001** | MADHAN T | Savings | ₹75,000 | Chennai | Regular Salaried ($\mu = ₹8,000$) |
+| **1002** | AVINASH N T | Savings | ₹50,000 | Chennai | Moderate Personal ($\mu = ₹6,000$) |
+| **1003** | RAJESH KUMAR | Current | ₹1,20,000 | Coimbatore | Commercial Business ($\mu = ₹25,000$) |
+| **1004** | PRIYA S | Savings | ₹30,000 | Bangalore | Student / Entry-Level ($\mu = ₹3,500$) |
+| **1005** | SURESH V | Current | ₹2,00,000 | Mumbai | High-Net-Worth Corporate ($\mu = ₹50,000$) |

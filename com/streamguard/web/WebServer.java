@@ -3,6 +3,7 @@ package com.streamguard.web;
 import com.streamguard.database.DatabaseConnection;
 import com.streamguard.manager.AccountManager;
 import com.streamguard.model.BankAccount;
+import com.streamguard.model.Transaction;
 import com.streamguard.service.DatabaseManager;
 import com.streamguard.service.OutputFileLogger;
 import com.streamguard.service.TransactionService;
@@ -277,26 +278,23 @@ public class WebServer {
                     return;
                 }
 
-                int blockedBefore = transactionService.getBlockedTransactions().size();
-
                 // Run the fraud engine
                 boolean safe = transactionService.processTransaction(
                     account, amount, location
                 );
 
-                String reason = "";
-                if (!safe) {
-                    var blocked = transactionService.getBlockedTransactions();
-                    if (blocked.size() > blockedBefore) {
-                        reason = blocked.get(blocked.size() - 1).getFraudReason();
-                    }
-                }
+                Transaction lastTxn = transactionService.getLastTransaction();
+                int    riskScore = (lastTxn != null) ? lastTxn.getRiskScore() : 0;
+                String verdict   = (lastTxn != null) ? lastTxn.getVerdict() : (safe ? "SAFE" : "FRAUD");
+                String reason    = (lastTxn != null) ? lastTxn.getFraudReason() : "";
 
                 String response;
                 if (safe) {
                     response = "{"
                         + "\"success\":true,"
                         + "\"status\":\"SAFE\","
+                        + "\"verdict\":\"" + escape(verdict) + "\","
+                        + "\"riskScore\":" + riskScore + ","
                         + "\"message\":\"Transaction approved successfully\","
                         + "\"accountId\":" + accountId + ","
                         + "\"amount\":" + amount + ","
@@ -306,8 +304,10 @@ public class WebServer {
                 } else {
                     response = "{"
                         + "\"success\":false,"
-                        + "\"status\":\"FRAUD\","
-                        + "\"message\":\"Transaction blocked\","
+                        + "\"status\":\"" + escape(verdict) + "\","
+                        + "\"verdict\":\"" + escape(verdict) + "\","
+                        + "\"riskScore\":" + riskScore + ","
+                        + "\"message\":\"Transaction " + ("SUSPICIOUS".equals(verdict) ? "flagged for review" : "blocked as fraud") + "\","
                         + "\"reason\":\"" + escape(reason) + "\","
                         + "\"accountId\":" + accountId + ","
                         + "\"amount\":" + amount + ","

@@ -284,8 +284,8 @@ public class Main {
     private static void printBanner() {
 
         System.out.println("====================================================");
-        System.out.println("          STREAMGUARD FRAUD DETECTION SYSTEM");
-        System.out.println("          Powered by MySQL + JDBC");
+        System.out.println("     STREAMGUARD BEHAVIORAL ANOMALY DETECTION");
+        System.out.println("     Statistical Z-Score + Haversine Velocity + MySQL");
         System.out.println("====================================================");
         System.out.println();
     }

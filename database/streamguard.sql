@@ -65,6 +65,8 @@ CREATE TABLE transactions (
     status         VARCHAR(20)     NOT NULL,
     fraud_reason   VARCHAR(255)    DEFAULT NULL,
     original_class VARCHAR(50)     DEFAULT NULL,
+    risk_score     INT             DEFAULT 0,
+    verdict        VARCHAR(20)     DEFAULT 'SAFE',
     FOREIGN KEY (account_id) REFERENCES accounts(account_id)
 );
 

@@ -274,6 +274,48 @@ public class DatabaseManager {
 
         String sql =
             "INSERT INTO transactions "
+            + "(txn_id, account_id, amount, location, timestamp, status, fraud_reason, risk_score, verdict) "
+            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setInt(1, txn.getTxnId());
+            ps.setInt(2, accountId);
+            ps.setDouble(3, txn.getAmount());
+            ps.setString(4, txn.getLocation());
+            // Convert LocalDateTime → java.sql.Timestamp
+            ps.setTimestamp(5, Timestamp.valueOf(txn.getTimestamp()));
+            ps.setString(6, txn.getStatus());
+            ps.setString(7,
+                txn.getFraudReason() == null || txn.getFraudReason().isEmpty()
+                    ? null
+                    : txn.getFraudReason()
+            );
+            ps.setInt(8, txn.getRiskScore());
+            ps.setString(9, txn.getVerdict());
+
+            ps.executeUpdate();
+
+        } catch (SQLException e) {
+            // If risk_score/verdict columns don't exist yet, fall back to original insert
+            if (e.getMessage() != null && e.getMessage().contains("Unknown column")) {
+                saveTransactionFallback(txn, accountId);
+            } else {
+                System.out.println(
+                    "  [DB ERROR] Failed to save transaction TXN"
+                    + String.format("%04d", txn.getTxnId())
+                    + ": " + e.getMessage()
+                );
+            }
+        }
+    }
+
+    /** Fallback INSERT without risk_score/verdict (for old schema). */
+    private void saveTransactionFallback(Transaction txn, int accountId) {
+
+        String sql =
+            "INSERT INTO transactions "
             + "(txn_id, account_id, amount, location, timestamp, status, fraud_reason) "
             + "VALUES (?, ?, ?, ?, ?, ?, ?)";
 
@@ -284,7 +326,6 @@ public class DatabaseManager {
             ps.setInt(2, accountId);
             ps.setDouble(3, txn.getAmount());
             ps.setString(4, txn.getLocation());
-            // Convert LocalDateTime → java.sql.Timestamp
             ps.setTimestamp(5, Timestamp.valueOf(txn.getTimestamp()));
             ps.setString(6, txn.getStatus());
             ps.setString(7,
@@ -331,6 +372,44 @@ public class DatabaseManager {
                 + accountId + ": " + e.getMessage()
             );
         }
+    }
+
+    // =========================================================
+    // ACCOUNT TRANSACTIONS (for Anomaly Profiling)
+    // =========================================================
+
+    /**
+     * Retrieves transactions for a specific account to train the behavioral profile.
+     *
+     * @param accountId Target account ID
+     * @return List of historical transactions
+     */
+    public ArrayList<Transaction> getTransactionsForAccount(int accountId) {
+        ArrayList<Transaction> list = new ArrayList<>();
+        String sql = "SELECT txn_id, amount, location, timestamp, status, fraud_reason "
+                   + "FROM transactions WHERE account_id = ? ORDER BY timestamp ASC";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setInt(1, accountId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Transaction txn = new Transaction(
+                        rs.getInt("txn_id"),
+                        rs.getDouble("amount"),
+                        rs.getString("location")
+                    );
+                    Timestamp ts = rs.getTimestamp("timestamp");
+                    if (ts != null) txn.setTimestampFromDb(ts.toLocalDateTime());
+                    txn.setStatus(rs.getString("status"));
+                    txn.setFraudReason(rs.getString("fraud_reason"));
+                    list.add(txn);
+                }
+            }
+        } catch (SQLException ignored) {
+        }
+        return list;
     }
 
     // =========================================================
